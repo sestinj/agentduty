@@ -1,0 +1,146 @@
+import crypto from "crypto";
+import { db } from "@/db";
+import { apiKeys, users } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+import { workos, WORKOS_COOKIE_PASSWORD } from "./workos";
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(userId, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= 100;
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+async function hashKey(key: string): Promise<string> {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+export async function authenticateRequest(
+  request: Request
+): Promise<{ userId: string } | null> {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader) return null;
+
+  // API key authentication (sent directly or as Bearer token)
+  if (authHeader.startsWith("adk_")) {
+    return authenticateApiKey(authHeader);
+  }
+
+  if (authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+
+    // API key sent as Bearer token
+    if (token.startsWith("adk_")) {
+      return authenticateApiKey(token);
+    }
+
+    // WorkOS session token
+    return authenticateBearerToken(token);
+  }
+
+  return null;
+}
+
+async function authenticateApiKey(
+  key: string
+): Promise<{ userId: string } | null> {
+  const prefix = key.slice(0, 12);
+  const now = new Date();
+
+  const results = await db
+    .select()
+    .from(apiKeys)
+    .where(eq(apiKeys.keyPrefix, prefix));
+
+  if (results.length === 0) return null;
+
+  const keyRecord = results[0];
+
+  if (keyRecord.expiresAt && keyRecord.expiresAt < now) return null;
+
+  const keyHash = await hashKey(key);
+  if (!timingSafeEqual(keyHash, keyRecord.keyHash)) return null;
+
+  if (!checkRateLimit(keyRecord.userId)) return null;
+
+  // Update last_used_at (fire-and-forget)
+  db.update(apiKeys)
+    .set({ lastUsedAt: now })
+    .where(eq(apiKeys.id, keyRecord.id))
+    .then(() => {});
+
+  return { userId: keyRecord.userId };
+}
+
+async function authenticateBearerToken(
+  token: string
+): Promise<{ userId: string } | null> {
+  try {
+    const result =
+      await workos.userManagement.authenticateWithSessionCookie({
+        sessionData: token,
+        cookiePassword: WORKOS_COOKIE_PASSWORD,
+      });
+
+    if (!result.authenticated) return null;
+
+    const dbResult = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.workosUserId, result.user.id));
+
+    if (dbResult.length === 0) return null;
+
+    if (!checkRateLimit(dbResult[0].id)) return null;
+
+    return { userId: dbResult[0].id };
+  } catch {
+    return null;
+  }
+}
+
+export async function createApiKey(
+  userId: string,
+  name: string
+): Promise<{ key: string; id: string; prefix: string }> {
+  const rawKey = `adk_live_sk_${crypto.randomBytes(24).toString("base64url")}`;
+  const prefix = rawKey.slice(0, 12);
+  const keyHash = await hashKey(rawKey);
+
+  const [record] = await db
+    .insert(apiKeys)
+    .values({
+      userId,
+      keyHash,
+      keyPrefix: prefix,
+      name,
+    })
+    .returning({ id: apiKeys.id });
+
+  return { key: rawKey, id: record.id, prefix };
+}
+
+export async function revokeApiKey(
+  userId: string,
+  keyId: string
+): Promise<boolean> {
+  const result = await db
+    .delete(apiKeys)
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, userId)))
+    .returning({ id: apiKeys.id });
+
+  return result.length > 0;
+}

@@ -1,0 +1,12 @@
+NOTES.md
+
+# Go
+cli/agentduty
+cli/cli
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.*
