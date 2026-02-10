@@ -12,19 +12,17 @@ import { eq, and, or, desc } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
 
-function findNotificationByIdOrShortCode(
-  id: string,
-  userId: string
-) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function findNotificationByIdOrShortCode(id: string, userId: string) {
+  const idFilter = UUID_RE.test(id)
+    ? eq(notifications.id, id)
+    : eq(notifications.shortCode, id);
+
   return db
     .select()
     .from(notifications)
-    .where(
-      and(
-        or(eq(notifications.id, id), eq(notifications.shortCode, id)),
-        eq(notifications.userId, userId)
-      )
-    );
+    .where(and(idFilter, eq(notifications.userId, userId)));
 }
 
 function generateShortCode(): string {
