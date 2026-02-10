@@ -36,7 +36,7 @@ var rootCmd = &cobra.Command{
 		}
 		cfg.APIUrl = apiURL
 
-		gqlClient = client.New(cfg.APIUrl, cfg.AccessToken)
+		gqlClient = client.New(cfg.APIUrl, cfg)
 		return nil
 	},
 }

@@ -6,13 +6,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+
+	"github.com/sestinj/agentduty/cli/internal/config"
 )
+
+const workosClientID = "client_01KFE40Z1FZ1NJQKHTNNPPWZ3C"
 
 type Client struct {
 	URL        string
 	HTTPClient *http.Client
 	token      string
+	cfg        *config.Config
 }
 
 type graphqlRequest struct {
@@ -29,7 +36,8 @@ type graphqlError struct {
 	Message string `json:"message"`
 }
 
-func New(apiURL, token string) *Client {
+func New(apiURL string, cfg *config.Config) *Client {
+	token := cfg.AccessToken
 	// Env var takes priority over stored token.
 	if key := os.Getenv("AGENTDUTY_API_KEY"); key != "" {
 		token = key
@@ -38,10 +46,22 @@ func New(apiURL, token string) *Client {
 		URL:        apiURL,
 		HTTPClient: &http.Client{},
 		token:      token,
+		cfg:        cfg,
 	}
 }
 
 func (c *Client) Do(query string, variables map[string]any) (json.RawMessage, error) {
+	data, err := c.doRequest(query, variables)
+	if err != nil && c.cfg.RefreshToken != "" && isAuthError(err) {
+		// Try refreshing the token.
+		if refreshErr := c.refreshToken(); refreshErr == nil {
+			return c.doRequest(query, variables)
+		}
+	}
+	return data, err
+}
+
+func (c *Client) doRequest(query string, variables map[string]any) (json.RawMessage, error) {
 	body, err := json.Marshal(graphqlRequest{Query: query, Variables: variables})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -81,4 +101,49 @@ func (c *Client) Do(query string, variables map[string]any) (json.RawMessage, er
 	}
 
 	return gqlResp.Data, nil
+}
+
+func isAuthError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Unauthorized") || strings.Contains(msg, "Unexpected error")
+}
+
+func (c *Client) refreshToken() error {
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", c.cfg.RefreshToken)
+	form.Set("client_id", workosClientID)
+
+	resp, err := http.Post(
+		"https://api.workos.com/user_management/authenticate",
+		"application/x-www-form-urlencoded",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("refresh failed: %s", string(body))
+	}
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return err
+	}
+
+	// Update in-memory token.
+	c.token = result.AccessToken
+
+	// Persist new tokens.
+	c.cfg.AccessToken = result.AccessToken
+	if result.RefreshToken != "" {
+		c.cfg.RefreshToken = result.RefreshToken
+	}
+	return config.Save(c.cfg)
 }
