@@ -1,6 +1,8 @@
 import { WebClient, type KnownBlock } from "@slack/web-api";
 
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+function getSlack() {
+  return new WebClient(process.env.SLACK_BOT_TOKEN);
+}
 
 interface SlackDMOptions {
   slackUserId: string;
@@ -57,7 +59,7 @@ export async function sendSlackDM({
     });
   }
 
-  const result = await slack.chat.postMessage({
+  const result = await getSlack().chat.postMessage({
     channel: slackUserId,
     text: `[${shortCode}] ${message}`,
     blocks,
