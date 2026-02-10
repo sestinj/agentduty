@@ -232,12 +232,10 @@ builder.mutationField("createNotification", (t) =>
         })
         .returning();
 
-      // Deliver directly (Slack/SMS). Non-blocking so the CLI returns fast.
-      deliverNotification(notification.id).catch((err: unknown) => {
-        console.error("Delivery failed:", err);
-      });
+      // Deliver to Slack/SMS and update status.
+      await deliverNotification(notification.id);
 
-      // Also trigger Inngest for escalation if configured.
+      // Trigger Inngest for multi-step escalation if configured.
       inngest
         .send({
           name: "notification/created",
@@ -245,7 +243,13 @@ builder.mutationField("createNotification", (t) =>
         })
         .catch(() => {});
 
-      return notification;
+      // Re-fetch to return updated status/channels.
+      const [updated] = await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.id, notification.id));
+
+      return updated ?? notification;
     },
   })
 );
