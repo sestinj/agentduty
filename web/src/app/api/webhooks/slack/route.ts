@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
   return new Response("Bad Request", { status: 400 });
 }
 
-function tryParseJSON(str: string): Record<string, unknown> | null {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tryParseJSON(str: string): any {
   try {
     return JSON.parse(str);
   } catch {
