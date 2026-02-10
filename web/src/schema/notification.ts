@@ -11,6 +11,7 @@ import {
 import { eq, and, or, desc } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
+import { deliverNotification } from "@/channels/deliver";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -231,17 +232,18 @@ builder.mutationField("createNotification", (t) =>
         })
         .returning();
 
-      // Trigger escalation via Inngest (non-blocking)
+      // Deliver directly (Slack/SMS). Non-blocking so the CLI returns fast.
+      deliverNotification(notification.id).catch((err: unknown) => {
+        console.error("Delivery failed:", err);
+      });
+
+      // Also trigger Inngest for escalation if configured.
       inngest
         .send({
           name: "notification/created",
-          data: {
-            notificationId: notification.id,
-          },
+          data: { notificationId: notification.id },
         })
-        .catch((err: unknown) => {
-          console.warn("Inngest send failed (escalation skipped):", err);
-        });
+        .catch(() => {});
 
       return notification;
     },

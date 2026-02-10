@@ -122,10 +122,12 @@ async function recordResponse(
     .set({ status: "responded", updatedAt: new Date() })
     .where(eq(notifications.id, notification.id));
 
-  await inngest.send({
-    name: "notification/responded",
-    data: { notificationId: notification.id },
-  });
+  inngest
+    .send({
+      name: "notification/responded",
+      data: { notificationId: notification.id },
+    })
+    .catch(() => {});
 }
 
 function twimlResponse(message: string): string {
