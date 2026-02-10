@@ -1,13 +1,9 @@
 import { WebClient } from "@slack/web-api";
 import { db } from "@/db";
-import {
-  notifications,
-  responses,
-  deliveries,
-  users,
-} from "@/db/schema";
+import { notifications, deliveries, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { inngest } from "@/inngest/client";
+import { parseInboundMessage } from "./parse-inbound";
+import { recordResponse } from "./record-response";
 
 function getSlack() {
   return new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -38,6 +34,8 @@ interface SlackEventPayload {
     text: string;
     thread_ts?: string;
     channel: string;
+    channel_type?: string;
+    subtype?: string;
     ts: string;
     bot_id?: string;
   };
@@ -124,7 +122,7 @@ export async function handleSlackInteraction(
 
     // Button click: record selected option
     const selectedOption = action.value;
-    await recordSlackResponse(notification, user, selectedOption, selectedOption);
+    await recordResponse(notification, user.id, "slack", selectedOption, selectedOption);
     return new Response("OK");
   }
 
@@ -152,7 +150,7 @@ export async function handleSlackInteraction(
 
       if (!user) return new Response("OK");
 
-      await recordSlackResponse(notification, user, responseText);
+      await recordResponse(notification, user.id, "slack", responseText);
 
       // Return empty 200 to close the modal
       return new Response(JSON.stringify({ response_action: "clear" }), {
@@ -180,66 +178,144 @@ export async function handleSlackEvent(
     // Ignore bot messages (including our own)
     if (event.bot_id) return new Response("OK");
 
-    // Thread replies are responses to notifications
+    // Skip subtypes like message_changed, message_deleted, etc.
+    if (event.subtype) return new Response("OK");
+
+    // Thread replies — notification is known from the delivery
     if (event.type === "message" && event.thread_ts) {
-      // Find delivery by thread_ts (external_id)
-      const [delivery] = await db
-        .select()
-        .from(deliveries)
-        .where(
-          and(
-            eq(deliveries.externalId, event.thread_ts),
-            eq(deliveries.channel, "slack")
-          )
-        );
+      return handleSlackThreadReply(event);
+    }
 
-      if (!delivery) return new Response("OK");
-
-      const [notification] = await db
-        .select()
-        .from(notifications)
-        .where(eq(notifications.id, delivery.notificationId));
-
-      if (!notification) return new Response("OK");
-
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.slackUserId, event.user));
-
-      if (!user) return new Response("OK");
-
-      await recordSlackResponse(notification, user, event.text);
+    // Top-level DMs — parse like SMS
+    if (event.type === "message" && event.channel_type === "im") {
+      return handleSlackDMMessage(event);
     }
   }
 
   return new Response("OK");
 }
 
-async function recordSlackResponse(
-  notification: typeof notifications.$inferSelect,
-  user: typeof users.$inferSelect,
-  text?: string,
-  selectedOption?: string
-) {
-  await db.insert(responses).values({
-    notificationId: notification.id,
-    channel: "slack",
-    text: text ?? null,
-    selectedOption: selectedOption ?? null,
-    responderId: user.id,
+async function handleSlackThreadReply(
+  event: NonNullable<SlackEventPayload["event"]>
+): Promise<Response> {
+  // Find delivery by thread_ts (external_id)
+  const [delivery] = await db
+    .select()
+    .from(deliveries)
+    .where(
+      and(
+        eq(deliveries.externalId, event.thread_ts!),
+        eq(deliveries.channel, "slack")
+      )
+    );
+
+  if (!delivery) return new Response("OK");
+
+  const [notification] = await db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.id, delivery.notificationId));
+
+  if (!notification) return new Response("OK");
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.slackUserId, event.user));
+
+  if (!user) return new Response("OK");
+
+  const text = event.text.trim();
+
+  // Support number selection in threads
+  const numberMatch = text.match(/^(\d+)$/);
+  if (numberMatch) {
+    const optionIndex = parseInt(numberMatch[1], 10) - 1;
+    if (
+      notification.options &&
+      optionIndex >= 0 &&
+      optionIndex < notification.options.length
+    ) {
+      const selectedOption = notification.options[optionIndex];
+      await recordResponse(notification, user.id, "slack", undefined, selectedOption);
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.thread_ts,
+        text: `Got it — selected *${selectedOption}* for [${notification.shortCode}].`,
+      });
+      return new Response("OK");
+    }
+  }
+
+  // Freeform text — no short code needed in threads
+  await recordResponse(notification, user.id, "slack", text);
+  await getSlack().chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts,
+    text: `Got it — recorded your response to [${notification.shortCode}].`,
   });
+  return new Response("OK");
+}
 
-  await db
-    .update(notifications)
-    .set({ status: "responded", updatedAt: new Date() })
-    .where(eq(notifications.id, notification.id));
+async function handleSlackDMMessage(
+  event: NonNullable<SlackEventPayload["event"]>
+): Promise<Response> {
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.slackUserId, event.user));
 
-  // Cancel escalation via Inngest (non-blocking)
-  inngest
-    .send({
-      name: "notification/responded",
-      data: { notificationId: notification.id },
-    })
-    .catch(() => {});
+  if (!user) {
+    await getSlack().chat.postMessage({
+      channel: event.channel,
+      text: "I don't recognize your Slack account. Please link it in AgentDuty settings.",
+    });
+    return new Response("OK");
+  }
+
+  const result = await parseInboundMessage(event.text.trim(), user.id);
+
+  switch (result.type) {
+    case "shortCode":
+      await recordResponse(result.notification, user.id, "slack", result.text);
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: `Got it — recorded your response to [${result.notification.shortCode}].`,
+      });
+      break;
+    case "optionSelect":
+      await recordResponse(result.notification, user.id, "slack", undefined, result.selectedOption);
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: `Got it — selected *${result.selectedOption}* for [${result.notification.shortCode}].`,
+      });
+      break;
+    case "freeform":
+      await recordResponse(result.notification, user.id, "slack", result.text);
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: `Got it — recorded your response to [${result.notification.shortCode}].`,
+      });
+      break;
+    case "invalidOption":
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: "Invalid option number. Please try again.",
+      });
+      break;
+    case "notFound":
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: `No active notification found with code ${result.shortCode}.`,
+      });
+      break;
+    case "noActive":
+      await getSlack().chat.postMessage({
+        channel: event.channel,
+        text: "No active notification to respond to. You can reply with a short code, e.g. `ABC your response`, or reply with a number to select an option.",
+      });
+      break;
+  }
+
+  return new Response("OK");
 }

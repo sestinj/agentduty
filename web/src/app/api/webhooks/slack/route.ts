@@ -31,6 +31,11 @@ function verifySlackSignature(
 }
 
 export async function POST(request: NextRequest) {
+  // Dedup Slack retries — if Slack is retrying, we already processed this event
+  if (request.headers.get("x-slack-retry-num")) {
+    return new Response("OK");
+  }
+
   const body = await request.text();
   const timestamp = request.headers.get("x-slack-request-timestamp");
   const signature = request.headers.get("x-slack-signature");

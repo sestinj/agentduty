@@ -1,7 +1,8 @@
 import { db } from "@/db";
-import { notifications, responses, users } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
-import { inngest } from "@/inngest/client";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { parseInboundMessage } from "./parse-inbound";
+import { recordResponse } from "./record-response";
 
 interface TwilioInboundSMS {
   From: string;
@@ -25,109 +26,25 @@ export async function handleInboundSMS(
     return twimlResponse("Unknown phone number. Please register your phone in AgentDuty.");
   }
 
-  // Try to parse short code prefix: e.g. "ABC some response"
-  const shortCodeMatch = body.match(/^([A-Z0-9]{3})\s+(.+)$/i);
+  const result = await parseInboundMessage(body, user.id);
 
-  if (shortCodeMatch) {
-    const shortCode = shortCodeMatch[1].toUpperCase();
-    const responseText = shortCodeMatch[2];
-
-    const [notification] = await db
-      .select()
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.shortCode, shortCode),
-          eq(notifications.userId, user.id)
-        )
-      );
-
-    if (!notification) {
-      return twimlResponse(`No active notification found with code ${shortCode}.`);
-    }
-
-    await recordResponse(notification, user, responseText);
-    return twimlResponse("Response recorded.");
-  }
-
-  // Try to parse as a number (option selection) for the most recent active notification
-  const numberMatch = body.match(/^(\d+)$/);
-
-  if (numberMatch) {
-    const optionIndex = parseInt(numberMatch[1], 10) - 1;
-
-    // Find the most recent pending/delivered notification for this user
-    const [notification] = await db
-      .select()
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.userId, user.id),
-          eq(notifications.status, "delivered")
-        )
-      );
-
-    if (!notification) {
+  switch (result.type) {
+    case "shortCode":
+      await recordResponse(result.notification, user.id, "sms", result.text);
+      return twimlResponse("Response recorded.");
+    case "optionSelect":
+      await recordResponse(result.notification, user.id, "sms", undefined, result.selectedOption);
+      return twimlResponse(`Selected: ${result.selectedOption}`);
+    case "freeform":
+      await recordResponse(result.notification, user.id, "sms", result.text);
+      return twimlResponse("Response recorded.");
+    case "invalidOption":
+      return twimlResponse("Invalid option number.");
+    case "notFound":
+      return twimlResponse(`No active notification found with code ${result.shortCode}.`);
+    case "noActive":
       return twimlResponse("No active notification to respond to.");
-    }
-
-    if (
-      notification.options &&
-      optionIndex >= 0 &&
-      optionIndex < notification.options.length
-    ) {
-      const selectedOption = notification.options[optionIndex];
-      await recordResponse(notification, user, undefined, selectedOption);
-      return twimlResponse(`Selected: ${selectedOption}`);
-    }
-
-    return twimlResponse("Invalid option number.");
   }
-
-  // Freeform text - find most recent active notification
-  const [notification] = await db
-    .select()
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.userId, user.id),
-        eq(notifications.status, "delivered")
-      )
-    );
-
-  if (notification) {
-    await recordResponse(notification, user, body);
-    return twimlResponse("Response recorded.");
-  }
-
-  return twimlResponse("No active notification to respond to.");
-}
-
-async function recordResponse(
-  notification: typeof notifications.$inferSelect,
-  user: typeof users.$inferSelect,
-  text?: string,
-  selectedOption?: string
-) {
-  await db.insert(responses).values({
-    notificationId: notification.id,
-    channel: "sms",
-    text: text ?? null,
-    selectedOption: selectedOption ?? null,
-    responderId: user.id,
-  });
-
-  await db
-    .update(notifications)
-    .set({ status: "responded", updatedAt: new Date() })
-    .where(eq(notifications.id, notification.id));
-
-  inngest
-    .send({
-      name: "notification/responded",
-      data: { notificationId: notification.id },
-    })
-    .catch(() => {});
 }
 
 function twimlResponse(message: string): string {
