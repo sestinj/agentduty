@@ -14,11 +14,15 @@ var (
 	cfg       *config.Config
 	gqlClient *client.Client
 	jsonFlag  bool
+
+	// Set via ldflags at build time.
+	version = "dev"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "agentduty",
-	Short: "AgentDuty CLI - notifications for AI agents",
+	Use:     "agentduty",
+	Short:   "AgentDuty CLI - notifications for AI agents",
+	Version: version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		cfg, err = config.Load()
