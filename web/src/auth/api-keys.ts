@@ -106,17 +106,7 @@ async function authenticateJWT(
       .from(users)
       .where(eq(users.workosUserId, workosUserId));
 
-    if (dbResult.length === 0) {
-      // User authenticated with WorkOS but doesn't exist in our DB yet.
-      // Auto-create them.
-      const [newUser] = await db
-        .insert(users)
-        .values({ workosUserId })
-        .returning({ id: users.id });
-
-      if (!checkRateLimit(newUser.id)) return null;
-      return { userId: newUser.id };
-    }
+    if (dbResult.length === 0) return null;
 
     if (!checkRateLimit(dbResult[0].id)) return null;
     return { userId: dbResult[0].id };
