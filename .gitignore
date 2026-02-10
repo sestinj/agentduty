@@ -10,3 +10,5 @@ cli/cli
 # Env
 .env
 .env.*
+.vercel
+.env*.local

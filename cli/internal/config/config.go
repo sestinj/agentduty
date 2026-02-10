@@ -32,7 +32,7 @@ func Load() (*Config, error) {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(dir)
 
-	viper.SetDefault("api_url", "https://agentduty.dev/api/graphql")
+	viper.SetDefault("api_url", "https://www.agentduty.dev/api/graphql")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
