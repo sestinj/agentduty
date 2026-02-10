@@ -1,10 +1,16 @@
 import crypto from "crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { db } from "@/db";
 import { apiKeys, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { workos, WORKOS_COOKIE_PASSWORD } from "./workos";
+import { WORKOS_CLIENT_ID } from "./workos";
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+// Cache the JWKS fetcher (it handles caching internally).
+const workosJWKS = createRemoteJWKSet(
+  new URL(`https://api.workos.com/sso/jwks/${WORKOS_CLIENT_ID}`)
+);
 
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
@@ -47,8 +53,8 @@ export async function authenticateRequest(
       return authenticateApiKey(token);
     }
 
-    // WorkOS session token
-    return authenticateBearerToken(token);
+    // WorkOS JWT access token (from device flow or session)
+    return authenticateJWT(token);
   }
 
   return null;
@@ -85,27 +91,34 @@ async function authenticateApiKey(
   return { userId: keyRecord.userId };
 }
 
-async function authenticateBearerToken(
+async function authenticateJWT(
   token: string
 ): Promise<{ userId: string } | null> {
   try {
-    const result =
-      await workos.userManagement.authenticateWithSessionCookie({
-        sessionData: token,
-        cookiePassword: WORKOS_COOKIE_PASSWORD,
-      });
+    const { payload } = await jwtVerify(token, workosJWKS);
 
-    if (!result.authenticated) return null;
+    // The `sub` claim is the WorkOS user ID.
+    const workosUserId = payload.sub;
+    if (!workosUserId) return null;
 
     const dbResult = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.workosUserId, result.user.id));
+      .where(eq(users.workosUserId, workosUserId));
 
-    if (dbResult.length === 0) return null;
+    if (dbResult.length === 0) {
+      // User authenticated with WorkOS but doesn't exist in our DB yet.
+      // Auto-create them.
+      const [newUser] = await db
+        .insert(users)
+        .values({ workosUserId })
+        .returning({ id: users.id });
+
+      if (!checkRateLimit(newUser.id)) return null;
+      return { userId: newUser.id };
+    }
 
     if (!checkRateLimit(dbResult[0].id)) return null;
-
     return { userId: dbResult[0].id };
   } catch {
     return null;

@@ -1,18 +1,21 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/sestinj/agentduty/cli/internal/config"
 	"github.com/spf13/cobra"
 )
+
+const workosClientID = "client_01KFE40Z1FZ1NJQKHTNNPPWZ3C"
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
@@ -25,37 +28,49 @@ func init() {
 }
 
 type deviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
 }
 
 type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	Error        string `json:"error,omitempty"`
+	AccessToken  string      `json:"access_token"`
+	RefreshToken string      `json:"refresh_token"`
+	User         interface{} `json:"user,omitempty"`
+	Error        string      `json:"error,omitempty"`
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
-	// Step 1: Request device codes.
+	// Step 1: Request device authorization from WorkOS.
 	deviceResp, err := requestDeviceCodes()
 	if err != nil {
 		return fmt.Errorf("device code request: %w", err)
 	}
 
 	// Step 2: Display code and open browser.
-	fmt.Printf("Enter code %s at %s\n", deviceResp.UserCode, deviceResp.VerificationURI)
-	fmt.Println("Opening browser...")
+	fmt.Printf("\nEnter code %s at %s\n\n", deviceResp.UserCode, deviceResp.VerificationURI)
 
-	openBrowser(deviceResp.VerificationURI)
+	if deviceResp.VerificationURIComplete != "" {
+		fmt.Println("Opening browser...")
+		openBrowser(deviceResp.VerificationURIComplete)
+	}
 
 	// Step 3: Poll for token.
 	fmt.Println("Waiting for authentication...")
 
-	token, err := pollForToken(deviceResp.DeviceCode, time.Duration(deviceResp.ExpiresIn)*time.Second)
+	interval := deviceResp.Interval
+	if interval == 0 {
+		interval = 5
+	}
+	expiresIn := deviceResp.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = 300
+	}
+
+	token, err := pollForToken(deviceResp.DeviceCode, interval, time.Duration(expiresIn)*time.Second)
 	if err != nil {
 		return fmt.Errorf("authentication: %w", err)
 	}
@@ -72,14 +87,13 @@ func runLogin(cmd *cobra.Command, args []string) error {
 }
 
 func requestDeviceCodes() (*deviceCodeResponse, error) {
-	body, _ := json.Marshal(map[string]string{
-		"client_id": "agentduty-cli",
-	})
+	form := url.Values{}
+	form.Set("client_id", workosClientID)
 
 	resp, err := http.Post(
-		"https://auth.agentduty.dev/user_management/authorize/device",
-		"application/json",
-		bytes.NewReader(body),
+		"https://api.workos.com/user_management/authorize/device",
+		"application/x-www-form-urlencoded",
+		strings.NewReader(form.Encode()),
 	)
 	if err != nil {
 		return nil, err
@@ -100,40 +114,28 @@ func requestDeviceCodes() (*deviceCodeResponse, error) {
 		return nil, err
 	}
 
-	if result.VerificationURI == "" {
-		result.VerificationURI = "https://auth.agentduty.dev/verify"
-	}
-	if result.ExpiresIn == 0 {
-		result.ExpiresIn = 300
-	}
-	if result.Interval == 0 {
-		result.Interval = 5
-	}
-
 	return &result, nil
 }
 
-func pollForToken(deviceCode string, expires time.Duration) (*tokenResponse, error) {
+func pollForToken(deviceCode string, interval int, expires time.Duration) (*tokenResponse, error) {
 	deadline := time.After(expires)
-	interval := 5 * time.Second
 
 	for {
 		select {
 		case <-deadline:
 			return nil, fmt.Errorf("authentication timed out")
-		case <-time.After(interval):
+		case <-time.After(time.Duration(interval) * time.Second):
 		}
 
-		body, _ := json.Marshal(map[string]string{
-			"grant_type":  "urn:ietf:params:oauth:grant-type:device_code",
-			"device_code": deviceCode,
-			"client_id":   "agentduty-cli",
-		})
+		form := url.Values{}
+		form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+		form.Set("device_code", deviceCode)
+		form.Set("client_id", workosClientID)
 
 		resp, err := http.Post(
-			"https://auth.agentduty.dev/user_management/authenticate/device",
-			"application/json",
-			bytes.NewReader(body),
+			"https://api.workos.com/user_management/authenticate",
+			"application/x-www-form-urlencoded",
+			strings.NewReader(form.Encode()),
 		)
 		if err != nil {
 			return nil, err
@@ -142,24 +144,37 @@ func pollForToken(deviceCode string, expires time.Duration) (*tokenResponse, err
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
-		var token tokenResponse
-		if err := json.Unmarshal(respBody, &token); err != nil {
-			return nil, err
-		}
-
-		switch token.Error {
-		case "authorization_pending":
-			continue
-		case "slow_down":
-			interval += 5 * time.Second
-			continue
-		case "":
+		if resp.StatusCode == http.StatusOK {
+			var token tokenResponse
+			if err := json.Unmarshal(respBody, &token); err != nil {
+				return nil, err
+			}
 			if token.AccessToken != "" {
 				return &token, nil
 			}
+		}
+
+		// Parse error response.
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return nil, fmt.Errorf("unexpected response: %s", string(respBody))
+		}
+
+		switch errResp.Error {
+		case "authorization_pending":
 			continue
+		case "slow_down":
+			interval++
+			continue
+		case "access_denied", "expired_token":
+			return nil, fmt.Errorf("authorization failed: %s", errResp.Error)
 		default:
-			return nil, fmt.Errorf("%s", token.Error)
+			if errResp.Error != "" {
+				return nil, fmt.Errorf("authorization failed: %s", errResp.Error)
+			}
+			continue
 		}
 	}
 }
