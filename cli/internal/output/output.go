@@ -47,11 +47,7 @@ func PrintJSON(v any) {
 
 func PrintNotificationCreated(n Notification) {
 	fmt.Printf("Notification sent: %s\n", n.ShortCode)
-	channels := "none"
-	if len(n.Channels) > 0 {
-		channels = strings.Join(n.Channels, ", ")
-	}
-	fmt.Printf("Priority: %d | Channels: %s\n", n.Priority, channels)
+	fmt.Printf("Priority: %d | Status: %s\n", n.Priority, n.Status)
 	fmt.Printf("Poll: agentduty poll %s\n", n.ShortCode)
 }
 

@@ -1,12 +1,21 @@
 import twilio from "twilio";
 
 function getClient() {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  if (!sid || !token) {
-    throw new Error("TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set");
+  // Prefer API key auth over account credentials
+  const apiKeySid = process.env.TWILIO_API_KEY_SID;
+  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+
+  if (apiKeySid && apiKeySecret && accountSid) {
+    return twilio(apiKeySid, apiKeySecret, { accountSid });
   }
-  return twilio(sid, token);
+
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (accountSid && authToken) {
+    return twilio(accountSid, authToken);
+  }
+
+  throw new Error("Twilio credentials not configured");
 }
 
 interface SMSOptions {
