@@ -8,9 +8,24 @@ import {
   escalationPolicies,
   priorityRoutes,
 } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
+
+function findNotificationByIdOrShortCode(
+  id: string,
+  userId: string
+) {
+  return db
+    .select()
+    .from(notifications)
+    .where(
+      and(
+        or(eq(notifications.id, id), eq(notifications.shortCode, id)),
+        eq(notifications.userId, userId)
+      )
+    );
+}
 
 function generateShortCode(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -85,15 +100,10 @@ builder.queryField("notification", (t) =>
     },
     resolve: async (_parent, args, ctx) => {
       if (!ctx.userId) throw new Error("Unauthorized");
-      const [notification] = await db
-        .select()
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.id, args.id),
-            eq(notifications.userId, ctx.userId)
-          )
-        );
+      const [notification] = await findNotificationByIdOrShortCode(
+        args.id,
+        ctx.userId
+      );
       return notification ?? null;
     },
   })
@@ -252,15 +262,10 @@ builder.mutationField("respondToNotification", (t) =>
     resolve: async (_parent, args, ctx) => {
       if (!ctx.userId) throw new Error("Unauthorized");
 
-      const [notification] = await db
-        .select()
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.id, args.id),
-            eq(notifications.userId, ctx.userId)
-          )
-        );
+      const [notification] = await findNotificationByIdOrShortCode(
+        args.id,
+        ctx.userId
+      );
 
       if (!notification) return null;
 
