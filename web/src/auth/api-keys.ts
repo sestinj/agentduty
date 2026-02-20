@@ -107,20 +107,37 @@ async function authenticateJWT(
       .where(eq(users.workosUserId, workosUserId));
 
     if (dbResult.length === 0) {
-      // User authenticated via WorkOS (e.g. CLI device flow) but not yet in DB.
+      // User authenticated via WorkOS (e.g. CLI device flow) but not yet in DB,
+      // or their workosUserId changed (e.g. switching WorkOS environments).
       const workosUser = await workos.userManagement.getUser(workosUserId);
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          email: workosUser.email,
-          name:
-            [workosUser.firstName, workosUser.lastName]
-              .filter(Boolean)
-              .join(" ") || null,
-          workosUserId,
-        })
-        .returning({ id: users.id });
-      dbResult = [newUser];
+
+      // Try to find existing user by email first.
+      const [existingByEmail] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, workosUser.email));
+
+      if (existingByEmail) {
+        // Update their workosUserId to the current one.
+        await db
+          .update(users)
+          .set({ workosUserId, updatedAt: new Date() })
+          .where(eq(users.id, existingByEmail.id));
+        dbResult = [existingByEmail];
+      } else {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            email: workosUser.email,
+            name:
+              [workosUser.firstName, workosUser.lastName]
+                .filter(Boolean)
+                .join(" ") || null,
+            workosUserId,
+          })
+          .returning({ id: users.id });
+        dbResult = [newUser];
+      }
     }
 
     if (!checkRateLimit(dbResult[0].id)) return null;
