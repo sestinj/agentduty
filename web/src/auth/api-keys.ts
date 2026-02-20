@@ -125,7 +125,8 @@ async function authenticateJWT(
 
     if (!checkRateLimit(dbResult[0].id)) return null;
     return { userId: dbResult[0].id };
-  } catch {
+  } catch (err) {
+    console.error("JWT auth error:", err);
     return null;
   }
 }
