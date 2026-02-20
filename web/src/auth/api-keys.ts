@@ -3,7 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { db } from "@/db";
 import { apiKeys, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { WORKOS_CLIENT_ID } from "./workos";
+import { workos, WORKOS_CLIENT_ID } from "./workos";
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
@@ -101,12 +101,27 @@ async function authenticateJWT(
     const workosUserId = payload.sub;
     if (!workosUserId) return null;
 
-    const dbResult = await db
+    let dbResult = await db
       .select({ id: users.id })
       .from(users)
       .where(eq(users.workosUserId, workosUserId));
 
-    if (dbResult.length === 0) return null;
+    if (dbResult.length === 0) {
+      // User authenticated via WorkOS (e.g. CLI device flow) but not yet in DB.
+      const workosUser = await workos.userManagement.getUser(workosUserId);
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          email: workosUser.email,
+          name:
+            [workosUser.firstName, workosUser.lastName]
+              .filter(Boolean)
+              .join(" ") || null,
+          workosUserId,
+        })
+        .returning({ id: users.id });
+      dbResult = [newUser];
+    }
 
     if (!checkRateLimit(dbResult[0].id)) return null;
     return { userId: dbResult[0].id };
