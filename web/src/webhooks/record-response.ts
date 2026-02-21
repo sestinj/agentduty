@@ -8,13 +8,15 @@ export async function recordResponse(
   responderId: string,
   channel: "slack" | "sms",
   text?: string,
-  selectedOption?: string
+  selectedOption?: string,
+  externalId?: string
 ) {
   await db.insert(responses).values({
     notificationId: notification.id,
     channel,
     text: text ?? null,
     selectedOption: selectedOption ?? null,
+    externalId: externalId ?? null,
     responderId,
   });
 

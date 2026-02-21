@@ -39,6 +39,12 @@ type Response struct {
 	CreatedAt      string `json:"createdAt"`
 }
 
+type ResponseWithContext struct {
+	Response      Response `json:"response"`
+	ShortCode     string   `json:"shortCode"`
+	ResponseIndex int      `json:"responseIndex"` // 1-based index within the notification
+}
+
 func PrintJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -115,12 +121,13 @@ func PrintSessionHistory(h SessionHistory) {
 		fmt.Printf("[%s] %s%s\n", n.ShortCode, n.Message, optStr)
 
 		if len(n.Responses) > 0 {
-			for _, r := range n.Responses {
+			for i, r := range n.Responses {
 				age := formatAge(timeSince(r.CreatedAt))
+				idx := i + 1 // 1-based for react -r flag
 				if r.SelectedOption != "" {
-					fmt.Printf("  → Selected: %s (%s, %s ago)\n", r.SelectedOption, r.Channel, age)
+					fmt.Printf("  %d. Selected: %s (%s, %s ago)\n", idx, r.SelectedOption, r.Channel, age)
 				} else if r.Text != "" {
-					fmt.Printf("  → %s (%s, %s ago)\n", r.Text, r.Channel, age)
+					fmt.Printf("  %d. %s (%s, %s ago)\n", idx, r.Text, r.Channel, age)
 				}
 			}
 		} else {
@@ -151,6 +158,17 @@ func PrintResponse(r Response) {
 		fmt.Printf("Selected: %s\n", r.SelectedOption)
 	}
 	fmt.Printf("Channel:  %s\n", r.Channel)
+}
+
+func PrintResponseWithContext(r ResponseWithContext) {
+	if r.Response.SelectedOption != "" {
+		fmt.Printf("[%s] Selected: %s\n", r.ShortCode, r.Response.SelectedOption)
+	} else {
+		fmt.Printf("[%s] %s\n", r.ShortCode, r.Response.Text)
+	}
+	if r.ResponseIndex > 0 {
+		fmt.Printf("  (react: agentduty react %s -r %d -e <emoji>)\n", r.ShortCode, r.ResponseIndex)
+	}
 }
 
 func formatAge(d time.Duration) string {

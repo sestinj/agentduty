@@ -34,7 +34,8 @@ export async function parseInboundMessage(
   userId: string
 ): Promise<ParseResult> {
   // Pattern 1: Short code prefix e.g. "ABC some response"
-  const shortCodeMatch = body.match(/^([A-Z0-9]{3})\s+(.+)$/i);
+  // Case-sensitive: only uppercase letters/digits to avoid matching normal words like "did", "the", etc.
+  const shortCodeMatch = body.match(/^([A-Z0-9]{3})\s+(.+)$/);
   if (shortCodeMatch) {
     const shortCode = shortCodeMatch[1].toUpperCase();
     const responseText = shortCodeMatch[2];

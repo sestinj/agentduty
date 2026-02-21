@@ -137,6 +137,7 @@ export const responses = pgTable("responses", {
   channel: channelEnum("channel").notNull(),
   text: text("text"),
   selectedOption: text("selected_option"),
+  externalId: text("external_id"),
   responderId: uuid("responder_id")
     .notNull()
     .references(() => users.id),

@@ -4,8 +4,9 @@ export const workos = new WorkOS(process.env.WORKOS_API_KEY!);
 
 export const WORKOS_CLIENT_ID = process.env.WORKOS_CLIENT_ID!;
 export const WORKOS_COOKIE_PASSWORD = process.env.WORKOS_COOKIE_PASSWORD!;
-export const WORKOS_REDIRECT_URI =
-  process.env.WORKOS_REDIRECT_URI || "https://agentduty.dev/auth/callback";
+export const WORKOS_REDIRECT_URI = (
+  process.env.WORKOS_REDIRECT_URI || "https://agentduty.dev/auth/callback"
+).trim();
 
 export function getAuthorizationUrl(state?: string) {
   return workos.userManagement.getAuthorizationUrl({

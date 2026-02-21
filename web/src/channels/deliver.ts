@@ -1,13 +1,15 @@
 import { db } from "@/db";
 import { notifications, deliveries, users, agentSessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { sendSlackDM, sendSlackThreadHeader } from "./slack";
+import { sendSlackDM } from "./slack";
 import { sendSMS } from "./twilio";
 
 /**
  * Deliver a notification to the user via their configured channels.
  * Tries Slack first, falls back to SMS.
  * If the notification belongs to a session, routes into a Slack thread.
+ * The first message in a session becomes the thread parent; subsequent
+ * messages are posted as replies.
  */
 export async function deliverNotification(notificationId: string) {
   const [notification] = await db
@@ -31,38 +33,20 @@ export async function deliverNotification(notificationId: string) {
     try {
       let threadTs: string | undefined;
 
-      // Session-aware thread routing
+      // Session-aware thread routing: reuse an existing thread if one exists.
       if (notification.sessionId) {
         const [session] = await db
           .select()
           .from(agentSessions)
           .where(eq(agentSessions.id, notification.sessionId));
 
-        if (session) {
-          if (session.slackThreadTs) {
-            // Reuse existing thread
-            threadTs = session.slackThreadTs;
-          } else {
-            // Create thread header as top-level message
-            const header = await sendSlackThreadHeader(
-              user.slackUserId,
-              notification.message,
-              notification.shortCode
-            );
-            threadTs = header.ts;
-
-            // Store thread info on session
-            await db
-              .update(agentSessions)
-              .set({
-                slackThreadTs: header.ts,
-                slackChannelId: header.channel,
-              })
-              .where(eq(agentSessions.id, session.id));
-          }
+        if (session?.slackThreadTs) {
+          threadTs = session.slackThreadTs;
         }
       }
 
+      // Send the message. Without threadTs this becomes a top-level DM
+      // (and the first message in a new session thread).
       const result = await sendSlackDM({
         slackUserId: user.slackUserId,
         message: notification.message,
@@ -71,6 +55,25 @@ export async function deliverNotification(notificationId: string) {
         notificationId: notification.id,
         threadTs,
       });
+
+      // If this was the first message for the session, save its ts as the
+      // thread parent so subsequent messages become replies.
+      if (notification.sessionId && !threadTs) {
+        const [session] = await db
+          .select()
+          .from(agentSessions)
+          .where(eq(agentSessions.id, notification.sessionId));
+
+        if (session && !session.slackThreadTs) {
+          await db
+            .update(agentSessions)
+            .set({
+              slackThreadTs: result.ts,
+              slackChannelId: result.channel,
+            })
+            .where(eq(agentSessions.id, session.id));
+        }
+      }
 
       await db.insert(deliveries).values({
         notificationId: notification.id,

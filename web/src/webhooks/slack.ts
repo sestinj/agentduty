@@ -327,14 +327,15 @@ async function handleSlackThreadReply(
         user.id,
         "slack",
         undefined,
-        selectedOption
+        selectedOption,
+        event.ts
       );
       return new Response("OK");
     }
   }
 
   // Freeform text — record regardless of notification status
-  await recordResponse(notification, user.id, "slack", text);
+  await recordResponse(notification, user.id, "slack", text, undefined, event.ts);
   return new Response("OK");
 }
 
@@ -354,15 +355,23 @@ async function handleSlackDMMessage(
     return new Response("OK");
   }
 
-  const result = await parseInboundMessage(event.text.trim(), user.id);
+  let text = event.text.trim();
+
+  // Append file attachments as URLs (same as thread replies)
+  if (event.files && event.files.length > 0) {
+    const fileLines = event.files.map(
+      (f) => `[${f.name}](${f.permalink})`
+    );
+    text = text
+      ? `${text}\n${fileLines.join("\n")}`
+      : fileLines.join("\n");
+  }
+
+  const result = await parseInboundMessage(text, user.id);
 
   switch (result.type) {
     case "shortCode":
-      await recordResponse(result.notification, user.id, "slack", result.text);
-      await getSlack().chat.postMessage({
-        channel: event.channel,
-        text: `Got it — recorded your response to [${result.notification.shortCode}].`,
-      });
+      await recordResponse(result.notification, user.id, "slack", result.text, undefined, event.ts);
       break;
     case "optionSelect":
       await recordResponse(
@@ -370,19 +379,12 @@ async function handleSlackDMMessage(
         user.id,
         "slack",
         undefined,
-        result.selectedOption
+        result.selectedOption,
+        event.ts
       );
-      await getSlack().chat.postMessage({
-        channel: event.channel,
-        text: `Got it — selected *${result.selectedOption}* for [${result.notification.shortCode}].`,
-      });
       break;
     case "freeform":
-      await recordResponse(result.notification, user.id, "slack", result.text);
-      await getSlack().chat.postMessage({
-        channel: event.channel,
-        text: `Got it — recorded your response to [${result.notification.shortCode}].`,
-      });
+      await recordResponse(result.notification, user.id, "slack", result.text, undefined, event.ts);
       break;
     case "invalidOption":
       await getSlack().chat.postMessage({
@@ -397,10 +399,7 @@ async function handleSlackDMMessage(
       });
       break;
     case "noActive":
-      await getSlack().chat.postMessage({
-        channel: event.channel,
-        text: "No active notification to respond to. You can reply with a short code, e.g. `ABC your response`, or reply with a number to select an option.",
-      });
+      // Silently ignore — the user might just be chatting
       break;
   }
 

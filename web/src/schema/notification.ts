@@ -4,6 +4,7 @@ import { db } from "@/db";
 import {
   notifications,
   responses,
+  deliveries,
   agentSessions,
   escalationPolicies,
   priorityRoutes,
@@ -12,6 +13,7 @@ import { eq, and, or, desc, asc } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
 import { deliverNotification } from "@/channels/deliver";
+import { addSlackReaction } from "@/channels/slack";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -289,13 +291,15 @@ builder.mutationField("createNotification", (t) =>
       // Deliver to Slack/SMS and update status.
       await deliverNotification(notification.id);
 
-      // Trigger Inngest for multi-step escalation if configured.
-      inngest
-        .send({
-          name: "notification/created",
-          data: { notificationId: notification.id },
-        })
-        .catch(() => {});
+      // Trigger Inngest for multi-step escalation only when a policy is set.
+      if (policyId) {
+        inngest
+          .send({
+            name: "notification/created",
+            data: { notificationId: notification.id },
+          })
+          .catch(() => {});
+      }
 
       // Re-fetch to return updated status/channels.
       const [updated] = await db
@@ -356,6 +360,78 @@ builder.mutationField("respondToNotification", (t) =>
         });
 
       return updated;
+    },
+  })
+);
+
+builder.mutationField("addReaction", (t) =>
+  t.field({
+    type: "Boolean",
+    args: {
+      id: t.arg.string({ required: true }),
+      emoji: t.arg.string({ required: true }),
+      responseIndex: t.arg.int({ required: false }),
+    },
+    resolve: async (_parent, args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      const [notification] = await findNotificationByIdOrShortCode(
+        args.id,
+        ctx.userId
+      );
+      if (!notification) throw new Error("Notification not found");
+
+      // Get all responses ordered chronologically (1-based indexing).
+      const allResponses = await db
+        .select()
+        .from(responses)
+        .where(eq(responses.notificationId, notification.id))
+        .orderBy(asc(responses.createdAt));
+
+      if (allResponses.length === 0) {
+        throw new Error("No responses on this notification");
+      }
+
+      let response;
+      if (args.responseIndex != null) {
+        const idx = args.responseIndex - 1; // convert to 0-based
+        if (idx < 0 || idx >= allResponses.length) {
+          throw new Error(
+            `Response index ${args.responseIndex} out of range (1-${allResponses.length})`
+          );
+        }
+        response = allResponses[idx];
+      } else {
+        // Default to most recent
+        response = allResponses[allResponses.length - 1];
+      }
+
+      if (!response.externalId) {
+        throw new Error("This response has no Slack message to react to");
+      }
+
+      // Get channel from the delivery metadata.
+      const [delivery] = await db
+        .select()
+        .from(deliveries)
+        .where(
+          and(
+            eq(deliveries.notificationId, notification.id),
+            eq(deliveries.channel, "slack")
+          )
+        );
+      if (!delivery) {
+        throw new Error("No Slack delivery found for this notification");
+      }
+
+      const metadata = delivery.metadata as { channel?: string } | null;
+      if (!metadata?.channel) {
+        throw new Error("No channel found in delivery metadata");
+      }
+
+      const emoji = args.emoji.replace(/^:|:$/g, "");
+      await addSlackReaction(metadata.channel, response.externalId, emoji);
+      return true;
     },
   })
 );

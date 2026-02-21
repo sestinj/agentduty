@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,7 +26,7 @@ var notifyCmd = &cobra.Command{
 func init() {
 	notifyCmd.Flags().StringP("message", "m", "", "Notification message")
 	notifyCmd.Flags().IntP("priority", "p", 3, "Priority level (1-5)")
-	notifyCmd.Flags().StringSliceP("options", "o", nil, "Response options (comma-separated)")
+	notifyCmd.Flags().StringArrayP("options", "o", nil, "Response options")
 	notifyCmd.Flags().StringSliceP("context", "c", nil, "Context key:value pairs")
 	notifyCmd.Flags().StringSliceP("tags", "t", nil, "Tags (comma-separated)")
 	notifyCmd.Flags().StringP("session", "s", "", "Session ID (auto-generated if empty)")
@@ -38,7 +41,7 @@ func init() {
 func runNotify(cmd *cobra.Command, args []string) error {
 	message, _ := cmd.Flags().GetString("message")
 	priority, _ := cmd.Flags().GetInt("priority")
-	options, _ := cmd.Flags().GetStringSlice("options")
+	options, _ := cmd.Flags().GetStringArray("options")
 	contextPairs, _ := cmd.Flags().GetStringSlice("context")
 	tags, _ := cmd.Flags().GetStringSlice("tags")
 	session, _ := cmd.Flags().GetString("session")
@@ -154,9 +157,43 @@ func runNotify(cmd *cobra.Command, args []string) error {
 }
 
 func generateSession(workspace string) string {
+	// Check for an instance-specific session (set by session-start hook).
+	if s := readInstanceSession(workspace); s != "" {
+		return s
+	}
+	// Fallback: deterministic session from workspace + date.
 	date := time.Now().Format("2006-01-02")
 	h := sha256.Sum256([]byte(workspace + date))
 	return fmt.Sprintf("%x", h[:4])
+}
+
+// instanceSessionPath returns the path for the per-instance session file.
+// Uses the workspace .claude directory so it's visible both inside and
+// outside the Claude Code sandbox.
+func instanceSessionPath(workspace string) string {
+	dir := filepath.Join(workspace, ".claude")
+	_ = os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, "agentduty-instance.session")
+}
+
+// writeInstanceSession creates a unique session ID and writes it to the instance file.
+func writeInstanceSession(workspace string) string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	date := time.Now().Format("2006-01-02")
+	h := sha256.Sum256([]byte(workspace + date + hex.EncodeToString(b)))
+	sessionKey := fmt.Sprintf("%x", h[:4])
+	_ = os.WriteFile(instanceSessionPath(workspace), []byte(sessionKey), 0644)
+	return sessionKey
+}
+
+// readInstanceSession reads the instance session ID from the temp file.
+func readInstanceSession(workspace string) string {
+	data, err := os.ReadFile(instanceSessionPath(workspace))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // resolveWorkspace returns the git repo root if inside a repo, otherwise CWD.

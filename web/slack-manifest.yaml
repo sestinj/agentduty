@@ -1,6 +1,10 @@
+_metadata:
+  major_version: 1
+  minor_version: 1
+
 display_information:
   name: AgentDuty
-  description: On-call notification bot
+  description: On-call for your AI agents
   background_color: "#2c2d30"
 
 features:
@@ -20,15 +24,16 @@ oauth_config:
       - im:history
       - im:read
       - im:write
+      - reactions:write
 
 settings:
   event_subscriptions:
-    request_url: SLACK_REQUEST_URL
+    request_url: https://YOUR_DOMAIN/api/webhooks/slack
     bot_events:
       - message.im
   interactivity:
     is_enabled: true
-    request_url: SLACK_REQUEST_URL
+    request_url: https://YOUR_DOMAIN/api/webhooks/slack
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
