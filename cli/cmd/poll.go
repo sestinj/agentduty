@@ -19,7 +19,7 @@ var pollCmd = &cobra.Command{
 
 func init() {
 	pollCmd.Flags().Bool("wait", false, "Wait for response")
-	pollCmd.Flags().Duration("timeout", 60*time.Second, "Timeout when waiting")
+	pollCmd.Flags().Duration("timeout", 30*time.Minute, "Timeout when waiting")
 
 	rootCmd.AddCommand(pollCmd)
 }

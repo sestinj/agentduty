@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/sestinj/agentduty/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -48,7 +47,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	workspace, _ := cmd.Flags().GetString("workspace")
 
 	if workspace == "" {
-		workspace, _ = os.Getwd()
+		workspace = resolveWorkspace()
 	}
 
 	if session == "" {

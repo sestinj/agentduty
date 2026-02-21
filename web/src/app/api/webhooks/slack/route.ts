@@ -63,7 +63,12 @@ export async function POST(request: NextRequest) {
 
   // Slack event payloads come as application/json
   if (parsed) {
-    return handleSlackEvent(parsed);
+    try {
+      return await handleSlackEvent(parsed);
+    } catch (err) {
+      console.error("Slack event handler error:", err);
+      return new Response("OK");
+    }
   }
 
   return new Response("Bad Request", { status: 400 });

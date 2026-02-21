@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ func init() {
 	notifyCmd.Flags().StringP("session", "s", "", "Session ID (auto-generated if empty)")
 	notifyCmd.Flags().StringP("workspace", "w", "", "Workspace path (default $PWD)")
 	notifyCmd.Flags().Bool("wait", false, "Wait for response")
-	notifyCmd.Flags().Duration("timeout", 300*time.Second, "Timeout when waiting")
+	notifyCmd.Flags().Duration("timeout", 30*time.Minute, "Timeout when waiting")
 	notifyCmd.Flags().Bool("stdin", false, "Read message from stdin")
 
 	rootCmd.AddCommand(notifyCmd)
@@ -60,7 +61,7 @@ func runNotify(cmd *cobra.Command, args []string) error {
 	}
 
 	if workspace == "" {
-		workspace, _ = os.Getwd()
+		workspace = resolveWorkspace()
 	}
 
 	if session == "" {
@@ -156,4 +157,14 @@ func generateSession(workspace string) string {
 	date := time.Now().Format("2006-01-02")
 	h := sha256.Sum256([]byte(workspace + date))
 	return fmt.Sprintf("%x", h[:4])
+}
+
+// resolveWorkspace returns the git repo root if inside a repo, otherwise CWD.
+func resolveWorkspace() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	cwd, _ := os.Getwd()
+	return cwd
 }
