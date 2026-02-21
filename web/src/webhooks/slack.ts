@@ -310,22 +310,12 @@ async function handleSlackThreadReply(
         undefined,
         selectedOption
       );
-      await getSlack().chat.postMessage({
-        channel: event.channel,
-        thread_ts: event.thread_ts,
-        text: `Got it — selected *${selectedOption}* for [${notification.shortCode}].`,
-      });
       return new Response("OK");
     }
   }
 
   // Freeform text — record regardless of notification status
   await recordResponse(notification, user.id, "slack", text);
-  await getSlack().chat.postMessage({
-    channel: event.channel,
-    thread_ts: event.thread_ts,
-    text: `Got it — recorded your response to [${notification.shortCode}].`,
-  });
   return new Response("OK");
 }
 
