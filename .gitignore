@@ -3,9 +3,13 @@ NOTES.md
 # Go
 cli/agentduty
 cli/cli
+cli/dist/
 
 # OS
 .DS_Store
+
+# Claude Code runtime state
+.claude/
 
 # Env
 .env
