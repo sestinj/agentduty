@@ -48,6 +48,13 @@ interface SlackEventPayload {
     subtype?: string;
     ts: string;
     bot_id?: string;
+    files?: Array<{
+      id: string;
+      mimetype: string;
+      name: string;
+      permalink: string;
+      url_private: string;
+    }>;
   };
   challenge?: string;
 }
@@ -291,7 +298,17 @@ async function handleSlackThreadReply(
   if (!result) return new Response("OK");
 
   const { notification, user } = result;
-  const text = event.text.trim();
+  let text = event.text.trim();
+
+  // Append file attachments as URLs
+  if (event.files && event.files.length > 0) {
+    const fileLines = event.files.map(
+      (f) => `[${f.name}](${f.permalink})`
+    );
+    text = text
+      ? `${text}\n${fileLines.join("\n")}`
+      : fileLines.join("\n");
+  }
 
   // Support number selection in threads
   const numberMatch = text.match(/^(\d+)$/);
