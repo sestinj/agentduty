@@ -6,10 +6,22 @@ import {
   deliveries,
   users,
   escalationPolicies,
+  agentSessions,
 } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { sendSlackDM } from "@/channels/slack";
 import { sendSMS } from "@/channels/twilio";
+
+async function getSessionThreadTs(
+  sessionId: string | null
+): Promise<string | undefined> {
+  if (!sessionId) return undefined;
+  const [session] = await db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId));
+  return session?.slackThreadTs ?? undefined;
+}
 
 export const escalateNotification = inngest.createFunction(
   {
@@ -44,12 +56,15 @@ export const escalateNotification = inngest.createFunction(
           .where(eq(users.id, notification.userId));
 
         if (user.slackUserId) {
+          const threadTs = await getSessionThreadTs(notification.sessionId);
+
           const result = await sendSlackDM({
             slackUserId: user.slackUserId,
             message: notification.message,
             shortCode: notification.shortCode,
             options: notification.options ?? undefined,
             notificationId: notification.id,
+            threadTs,
           });
 
           await db.insert(deliveries).values({
@@ -57,7 +72,7 @@ export const escalateNotification = inngest.createFunction(
             channel: "slack",
             status: "sent",
             externalId: result.ts,
-            metadata: { channel: result.channel },
+            metadata: { channel: result.channel, threadTs },
           });
         } else if (user.phone) {
           const result = await sendSMS({
@@ -111,12 +126,15 @@ export const escalateNotification = inngest.createFunction(
           .where(eq(users.id, notification.userId));
 
         if (escalationStep.channel === "slack" && user.slackUserId) {
+          const threadTs = await getSessionThreadTs(notification.sessionId);
+
           const result = await sendSlackDM({
             slackUserId: user.slackUserId,
             message: notification.message,
             shortCode: notification.shortCode,
             options: notification.options ?? undefined,
             notificationId: notification.id,
+            threadTs,
           });
 
           await db.insert(deliveries).values({
@@ -124,7 +142,7 @@ export const escalateNotification = inngest.createFunction(
             channel: "slack",
             status: "sent",
             externalId: result.ts,
-            metadata: { channel: result.channel },
+            metadata: { channel: result.channel, threadTs },
           });
         } else if (escalationStep.channel === "sms" && user.phone) {
           const result = await sendSMS({

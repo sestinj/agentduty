@@ -8,7 +8,7 @@ import {
   escalationPolicies,
   priorityRoutes,
 } from "@/db/schema";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, asc } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
 import { deliverNotification } from "@/channels/deliver";
@@ -136,6 +136,60 @@ builder.queryField("notifications", (t) =>
         .from(notifications)
         .where(and(...conditions))
         .orderBy(desc(notifications.createdAt));
+    },
+  })
+);
+
+const SessionHistoryType = builder.objectRef<{
+  sessionId: string;
+  workspace: string | null;
+  notifications: Array<typeof notifications.$inferSelect>;
+}>("SessionHistory");
+
+SessionHistoryType.implement({
+  fields: (t) => ({
+    sessionId: t.exposeString("sessionId"),
+    workspace: t.exposeString("workspace", { nullable: true }),
+    notifications: t.field({
+      type: [NotificationType],
+      resolve: (session) => session.notifications,
+    }),
+  }),
+});
+
+builder.queryField("sessionHistory", (t) =>
+  t.field({
+    type: SessionHistoryType,
+    nullable: true,
+    args: {
+      sessionKey: t.arg.string({ required: true }),
+    },
+    resolve: async (_parent, args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      const [session] = await db
+        .select()
+        .from(agentSessions)
+        .where(
+          and(
+            eq(agentSessions.sessionKey, args.sessionKey),
+            eq(agentSessions.userId, ctx.userId)
+          )
+        );
+
+      if (!session) return null;
+
+      const sessionNotifications = await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.sessionId, session.id))
+        .orderBy(asc(notifications.createdAt));
+
+      return {
+        sessionId: session.id,
+        workspace: session.workspace,
+        notifications: sessionNotifications,
+      };
     },
   })
 );

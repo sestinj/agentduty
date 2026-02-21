@@ -88,6 +88,63 @@ func PrintNotifications(notifications []Notification) {
 	w.Flush()
 }
 
+type SessionHistory struct {
+	SessionID     string         `json:"sessionId"`
+	Workspace     string         `json:"workspace,omitempty"`
+	Notifications []Notification `json:"notifications"`
+}
+
+func PrintSessionHistory(h SessionHistory) {
+	fmt.Printf("Session: %s", truncate(h.SessionID, 8))
+	if h.Workspace != "" {
+		fmt.Printf(" | Workspace: %s", h.Workspace)
+	}
+	fmt.Println()
+	fmt.Println()
+
+	if len(h.Notifications) == 0 {
+		fmt.Println("No notifications in this session.")
+		return
+	}
+
+	for _, n := range h.Notifications {
+		optStr := ""
+		if len(n.Options) > 0 {
+			optStr = " (" + strings.Join(n.Options, ", ") + ")"
+		}
+		fmt.Printf("[%s] %s%s\n", n.ShortCode, n.Message, optStr)
+
+		if len(n.Responses) > 0 {
+			for _, r := range n.Responses {
+				age := formatAge(timeSince(r.CreatedAt))
+				if r.SelectedOption != "" {
+					fmt.Printf("  → Selected: %s (%s, %s ago)\n", r.SelectedOption, r.Channel, age)
+				} else if r.Text != "" {
+					fmt.Printf("  → %s (%s, %s ago)\n", r.Text, r.Channel, age)
+				}
+			}
+		} else {
+			fmt.Println("  (awaiting response)")
+		}
+		fmt.Println()
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+func timeSince(isoTime string) time.Duration {
+	t, err := time.Parse(time.RFC3339, isoTime)
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
+}
+
 func PrintResponse(r Response) {
 	fmt.Printf("Response: %s\n", r.Text)
 	if r.SelectedOption != "" {

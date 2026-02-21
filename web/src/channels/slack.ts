@@ -10,6 +10,7 @@ interface SlackDMOptions {
   shortCode: string;
   options?: string[];
   notificationId: string;
+  threadTs?: string;
 }
 
 export async function sendSlackDM({
@@ -18,6 +19,7 @@ export async function sendSlackDM({
   shortCode,
   options,
   notificationId,
+  threadTs,
 }: SlackDMOptions): Promise<{ ts: string; channel: string }> {
   const blocks: KnownBlock[] = [
     {
@@ -63,10 +65,68 @@ export async function sendSlackDM({
     channel: slackUserId,
     text: `[${shortCode}] ${message}`,
     blocks,
+    ...(threadTs ? { thread_ts: threadTs } : {}),
   });
 
   return {
     ts: result.ts!,
     channel: result.channel!,
   };
+}
+
+export async function sendSlackThreadHeader(
+  slackUserId: string,
+  message: string,
+  shortCode: string
+): Promise<{ ts: string; channel: string }> {
+  const result = await getSlack().chat.postMessage({
+    channel: slackUserId,
+    text: `[${shortCode}] ${message}`,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*[${shortCode}]* ${message}`,
+        },
+      },
+    ],
+  });
+
+  return {
+    ts: result.ts!,
+    channel: result.channel!,
+  };
+}
+
+export async function updateSlackMessage(
+  channel: string,
+  ts: string,
+  shortCode: string,
+  message: string,
+  selectedOption: string
+): Promise<void> {
+  await getSlack().chat.update({
+    channel,
+    ts,
+    text: `[${shortCode}] ${message}`,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*[${shortCode}]* ${message}`,
+        },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Selected: *${selectedOption}*`,
+          },
+        ],
+      },
+    ],
+  });
 }
