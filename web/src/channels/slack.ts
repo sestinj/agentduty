@@ -21,12 +21,13 @@ export async function sendSlackDM({
   notificationId,
   threadTs,
 }: SlackDMOptions): Promise<{ ts: string; channel: string }> {
+  const displayText = threadTs ? message : `*[${shortCode}]* ${message}`;
   const blocks: KnownBlock[] = [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*[${shortCode}]* ${message}`,
+        text: displayText,
       },
     },
   ];
@@ -63,7 +64,7 @@ export async function sendSlackDM({
 
   const result = await getSlack().chat.postMessage({
     channel: slackUserId,
-    text: `[${shortCode}] ${message}`,
+    text: threadTs ? message : `[${shortCode}] ${message}`,
     blocks,
     ...(threadTs ? { thread_ts: threadTs } : {}),
   });
