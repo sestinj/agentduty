@@ -215,8 +215,10 @@ export async function handleSlackEvent(
     // Ignore bot messages (including our own)
     if (event.bot_id) return new Response("OK");
 
-    // Skip subtypes like message_changed, message_deleted, etc.
-    if (event.subtype) return new Response("OK");
+    // Skip subtypes we don't care about (but allow file_share for image uploads)
+    if (event.subtype && event.subtype !== "file_share") {
+      return new Response("OK");
+    }
 
     // Thread replies — notification is known from the delivery
     if (event.type === "message" && event.thread_ts) {
