@@ -131,6 +131,17 @@ export const deliveries = pgTable("deliveries", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const slackInstallations = pgTable("slack_installations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  teamId: text("team_id").notNull().unique(),
+  teamName: text("team_name"),
+  botToken: text("bot_token").notNull(),
+  botUserId: text("bot_user_id"),
+  installedByUserId: uuid("installed_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const responses = pgTable("responses", {
   id: uuid("id").primaryKey().defaultRandom(),
   notificationId: uuid("notification_id")

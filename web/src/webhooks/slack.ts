@@ -9,7 +9,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { parseInboundMessage } from "./parse-inbound";
 import { recordResponse } from "./record-response";
-import { updateSlackMessage } from "@/channels/slack";
+import { updateSlackMessage, getSlackForTeam } from "@/channels/slack";
 
 function getSlack() {
   return new WebClient(process.env.SLACK_BOT_TOKEN);

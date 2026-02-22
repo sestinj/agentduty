@@ -54,6 +54,7 @@ export async function deliverNotification(notificationId: string) {
         options: notification.options ?? undefined,
         notificationId: notification.id,
         threadTs,
+        teamId: user.slackTeamId ?? undefined,
       });
 
       // If this was the first message for the session, save its ts as the

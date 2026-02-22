@@ -1,7 +1,26 @@
 import { WebClient, type KnownBlock } from "@slack/web-api";
+import { db } from "@/db";
+import { slackInstallations } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
-function getSlack() {
-  return new WebClient(process.env.SLACK_BOT_TOKEN);
+function getSlack(token?: string) {
+  return new WebClient(token || process.env.SLACK_BOT_TOKEN);
+}
+
+/**
+ * Get a Slack client for a specific team. Falls back to the default bot token.
+ */
+export async function getSlackForTeam(teamId: string): Promise<WebClient> {
+  const [installation] = await db
+    .select()
+    .from(slackInstallations)
+    .where(eq(slackInstallations.teamId, teamId));
+
+  if (installation) {
+    return new WebClient(installation.botToken);
+  }
+
+  return getSlack();
 }
 
 /**
@@ -72,6 +91,7 @@ interface SlackDMOptions {
   options?: string[];
   notificationId: string;
   threadTs?: string;
+  teamId?: string;
 }
 
 export async function sendSlackDM({
@@ -81,7 +101,9 @@ export async function sendSlackDM({
   options,
   notificationId,
   threadTs,
+  teamId,
 }: SlackDMOptions): Promise<{ ts: string; channel: string }> {
+  const slack = teamId ? await getSlackForTeam(teamId) : getSlack();
   const slackMessage = markdownToMrkdwn(message);
   const displayText = threadTs
     ? slackMessage
@@ -126,7 +148,7 @@ export async function sendSlackDM({
     });
   }
 
-  const result = await getSlack().chat.postMessage({
+  const result = await slack.chat.postMessage({
     channel: slackUserId,
     text: threadTs ? slackMessage : `[${shortCode}] ${slackMessage}`,
     blocks,

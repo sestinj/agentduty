@@ -67,7 +67,34 @@ func connectSlack() error {
 
 	code := genResult.GenerateSlackLinkCode
 
-	fmt.Println("To connect Slack, send this code as a DM to the AgentDuty bot:")
+	// Get user ID for the install URL
+	meQuery := `query { me { id } }`
+	meData, _ := gqlClient.Do(meQuery, nil)
+	userId := ""
+	if meData != nil {
+		var meResult struct {
+			Me struct {
+				ID string `json:"id"`
+			} `json:"me"`
+		}
+		if json.Unmarshal(meData, &meResult) == nil {
+			userId = meResult.Me.ID
+		}
+	}
+
+	baseURL := "https://www.agentduty.dev"
+	installURL := fmt.Sprintf("%s/auth/slack/install?user_id=%s", baseURL, userId)
+
+	fmt.Println("Step 1: Install the AgentDuty Slack app in your workspace")
+	fmt.Println("  (skip if already installed)")
+	fmt.Println()
+	fmt.Printf("  %s\n", installURL)
+	fmt.Println()
+
+	// Try to open browser
+	openBrowser(installURL)
+
+	fmt.Println("Step 2: DM this code to the AgentDuty bot in Slack:")
 	fmt.Println()
 	fmt.Printf("  %s\n", code)
 	fmt.Println()
@@ -102,3 +129,4 @@ func connectSlack() error {
 		}
 	}
 }
+
