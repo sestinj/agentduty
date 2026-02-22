@@ -97,6 +97,10 @@ export async function handleSlackInteraction(
           callback_id: `respond_modal`,
           private_metadata: JSON.stringify({
             notificationId: notification.id,
+            shortCode: notification.shortCode,
+            message: notification.message,
+            channelId: payload.container?.channel_id,
+            messageTs: payload.container?.message_ts,
           }),
           title: {
             type: "plain_text",
@@ -188,6 +192,23 @@ export async function handleSlackInteraction(
       if (!user) return new Response("OK");
 
       await recordResponse(notification, user.id, "slack", responseText);
+
+      // Update the original message to remove buttons and show the response
+      if (metadata.channelId && metadata.messageTs) {
+        const truncated =
+          responseText.length > 100
+            ? responseText.slice(0, 97) + "..."
+            : responseText;
+        updateSlackMessage(
+          metadata.channelId,
+          metadata.messageTs,
+          metadata.shortCode || notification.shortCode,
+          metadata.message || notification.message,
+          `Other: ${truncated}`
+        ).catch((err) =>
+          console.error("Failed to update Slack message:", err)
+        );
+      }
 
       // Return empty 200 to close the modal
       return new Response(JSON.stringify({ response_action: "clear" }), {

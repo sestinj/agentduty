@@ -7,6 +7,7 @@ const yoga = createYoga<{ request: Request }>({
   schema,
   graphqlEndpoint: "/api/graphql",
   fetchAPI: { Response },
+  maskedErrors: false,
   context: async ({ request }): Promise<Context> => {
     const auth = await authenticateRequest(request);
     return { userId: auth?.userId ?? null };
