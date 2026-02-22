@@ -125,6 +125,8 @@ func runHookSessionStart(cmd *cobra.Command, args []string) error {
 - View history: agentduty history
 
 IMPORTANT: When having a conversation through AgentDuty, always maintain a background poll so you can receive replies. After sending a notification, immediately start a background poll. Never let a poll lapse without starting a new one — losing contact means the user has to rescue you manually.
+
+IMPORTANT: Keep messages concise. Slack truncates messages behind a "See more" toggle at ~700 characters. Stay under this limit when possible — be direct, skip filler, use short bullet points. If you truly need more space, it's okay to go over, but prefer brevity.
 `)
 	return nil
 }

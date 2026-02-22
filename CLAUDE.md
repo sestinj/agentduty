@@ -17,6 +17,8 @@ When having a conversation with the user through AgentDuty (Slack), you MUST alw
 
 4. NEVER let a poll timeout without starting a new one. If a poll times out, restart it immediately. Losing contact means the user has to come rescue you manually.
 
+5. Keep messages concise. Slack truncates messages behind a "See more" toggle at ~700 characters. Stay under this limit when possible — be direct, skip filler, use short bullet points. If you truly need more space, it's okay to go over, but prefer brevity.
+
 5. The CLI binary is at `/tmp/agentduty`. If it doesn't exist, build it:
    ```
    cd cli && go build -o /tmp/agentduty .
