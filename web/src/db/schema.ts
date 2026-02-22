@@ -33,6 +33,8 @@ export const users = pgTable("users", {
   phone: text("phone"),
   slackUserId: text("slack_user_id"),
   slackTeamId: text("slack_team_id"),
+  slackLinkCode: text("slack_link_code"),
+  slackLinkCodeExpiresAt: timestamp("slack_link_code_expires_at"),
   timezone: text("timezone").default("UTC"),
   quietHoursStart: time("quiet_hours_start"),
   quietHoursEnd: time("quiet_hours_end"),

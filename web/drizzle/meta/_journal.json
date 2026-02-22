@@ -15,6 +15,13 @@
       "when": 1771710817904,
       "tag": "0001_red_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771719937430,
+      "tag": "0002_dazzling_mongoose",
+      "breakpoints": true
     }
   ]
 }

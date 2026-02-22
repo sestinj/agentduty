@@ -363,6 +363,12 @@ async function handleSlackThreadReply(
 async function handleSlackDMMessage(
   event: NonNullable<SlackEventPayload["event"]>
 ): Promise<Response> {
+  // Check for link code before user lookup
+  const linkMatch = event.text.trim().match(/^LINK-[A-Z0-9]{6}$/i);
+  if (linkMatch) {
+    return handleSlackLinkCode(event, linkMatch[0].toUpperCase());
+  }
+
   const [user] = await db
     .select()
     .from(users)
@@ -371,7 +377,7 @@ async function handleSlackDMMessage(
   if (!user) {
     await getSlack().chat.postMessage({
       channel: event.channel,
-      text: "I don't recognize your Slack account. Please link it in AgentDuty settings.",
+      text: "I don't recognize your Slack account. To link your account, run `agentduty connect slack` in your terminal and DM me the code.",
     });
     return new Response("OK");
   }
@@ -423,6 +429,50 @@ async function handleSlackDMMessage(
       // Silently ignore — the user might just be chatting
       break;
   }
+
+  return new Response("OK");
+}
+
+async function handleSlackLinkCode(
+  event: NonNullable<SlackEventPayload["event"]>,
+  code: string
+): Promise<Response> {
+  const { gt } = await import("drizzle-orm");
+
+  // Find user with this unexpired link code
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.slackLinkCode, code),
+        gt(users.slackLinkCodeExpiresAt!, new Date())
+      )
+    );
+
+  if (!user) {
+    await getSlack().chat.postMessage({
+      channel: event.channel,
+      text: "Invalid or expired link code. Run `agentduty connect slack` to generate a new one.",
+    });
+    return new Response("OK");
+  }
+
+  // Link the Slack account
+  await db
+    .update(users)
+    .set({
+      slackUserId: event.user,
+      slackLinkCode: null,
+      slackLinkCodeExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+
+  await getSlack().chat.postMessage({
+    channel: event.channel,
+    text: `Linked! Your Slack account is now connected to ${user.email}. You'll receive notifications here.`,
+  });
 
   return new Response("OK");
 }
