@@ -48,6 +48,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().String("api-url", "https://agentduty.dev/api/graphql", "API endpoint URL")
+	rootCmd.PersistentFlags().String("api-url", "https://www.agentduty.dev/api/graphql", "API endpoint URL")
 	rootCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "Output as JSON")
 }
