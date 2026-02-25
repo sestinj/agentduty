@@ -5,5 +5,6 @@ import "./user";
 import "./notification";
 import "./response";
 import "./escalation";
+import "./api-key";
 
 export const schema = builder.toSchema();
