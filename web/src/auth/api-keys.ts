@@ -73,22 +73,23 @@ async function authenticateApiKey(
 
   if (results.length === 0) return null;
 
-  const keyRecord = results[0];
-
-  if (keyRecord.expiresAt && keyRecord.expiresAt < now) return null;
-
   const keyHash = await hashKey(key);
-  if (!timingSafeEqual(keyHash, keyRecord.keyHash)) return null;
 
-  if (!checkRateLimit(keyRecord.userId)) return null;
+  for (const keyRecord of results) {
+    if (keyRecord.expiresAt && keyRecord.expiresAt < now) continue;
+    if (!timingSafeEqual(keyHash, keyRecord.keyHash)) continue;
+    if (!checkRateLimit(keyRecord.userId)) return null;
 
-  // Update last_used_at (fire-and-forget)
-  db.update(apiKeys)
-    .set({ lastUsedAt: now })
-    .where(eq(apiKeys.id, keyRecord.id))
-    .then(() => {});
+    // Update last_used_at (fire-and-forget)
+    db.update(apiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(apiKeys.id, keyRecord.id))
+      .then(() => {});
 
-  return { userId: keyRecord.userId };
+    return { userId: keyRecord.userId };
+  }
+
+  return null;
 }
 
 async function authenticateJWT(
