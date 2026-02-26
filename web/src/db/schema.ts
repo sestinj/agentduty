@@ -10,13 +10,14 @@ import {
   pgEnum,
 } from "drizzle-orm/pg-core";
 
-export const channelEnum = pgEnum("channel", ["slack", "sms"]);
+export const channelEnum = pgEnum("channel", ["slack", "sms", "web"]);
 
 export const notificationStatusEnum = pgEnum("notification_status", [
   "pending",
   "delivered",
   "responded",
   "expired",
+  "archived",
 ]);
 
 export const deliveryStatusEnum = pgEnum("delivery_status", [
@@ -114,6 +115,7 @@ export const notifications = pgTable("notifications", {
   status: notificationStatusEnum("status").notNull().default("pending"),
   currentEscalationStep: integer("current_escalation_step").default(0),
   policyId: uuid("policy_id").references(() => escalationPolicies.id),
+  snoozedUntil: timestamp("snoozed_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -9,7 +9,7 @@ import {
   escalationPolicies,
   priorityRoutes,
 } from "@/db/schema";
-import { eq, and, or, desc, asc } from "drizzle-orm";
+import { eq, and, or, desc, asc, inArray, isNull, lte, sql } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
 import { ResponseType } from "./response";
 import { deliverNotification } from "@/channels/deliver";
@@ -51,6 +51,7 @@ const NotificationType = builder.objectRef<{
   status: string;
   currentEscalationStep: number | null;
   policyId: string | null;
+  snoozedUntil: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }>("Notification");
@@ -74,6 +75,10 @@ NotificationType.implement({
       nullable: true,
     }),
     policyId: t.exposeString("policyId", { nullable: true }),
+    snoozedUntil: t.string({
+      nullable: true,
+      resolve: (n) => (n.snoozedUntil ? n.snoozedUntil.toISOString() : null),
+    }),
     createdAt: t.string({
       resolve: (n) => n.createdAt.toISOString(),
     }),
@@ -334,7 +339,7 @@ builder.mutationField("respondToNotification", (t) =>
       // Record the response
       await db.insert(responses).values({
         notificationId: notification.id,
-        channel: "slack",
+        channel: "web",
         text: args.text,
         selectedOption: args.selectedOption,
         responderId: ctx.userId,
@@ -432,6 +437,110 @@ builder.mutationField("addReaction", (t) =>
       const emoji = args.emoji.replace(/^:|:$/g, "");
       await addSlackReaction(metadata.channel, response.externalId, emoji);
       return true;
+    },
+  })
+);
+
+builder.queryField("activeFeed", (t) =>
+  t.field({
+    type: [NotificationType],
+    resolve: async (_parent, _args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      return db
+        .select()
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, ctx.userId),
+            inArray(notifications.status, ["pending", "delivered"]),
+            or(
+              isNull(notifications.snoozedUntil),
+              lte(notifications.snoozedUntil, sql`now()`)
+            )
+          )
+        )
+        .orderBy(desc(notifications.priority), asc(notifications.createdAt));
+    },
+  })
+);
+
+builder.mutationField("snoozeNotification", (t) =>
+  t.field({
+    type: NotificationType,
+    nullable: true,
+    args: {
+      id: t.arg.string({ required: true }),
+      minutes: t.arg.int({ required: true }),
+    },
+    resolve: async (_parent, args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      const [notification] = await findNotificationByIdOrShortCode(
+        args.id,
+        ctx.userId
+      );
+
+      if (!notification) return null;
+
+      const snoozedUntil = new Date(Date.now() + args.minutes * 60 * 1000);
+      const [updated] = await db
+        .update(notifications)
+        .set({ snoozedUntil, updatedAt: new Date() })
+        .where(eq(notifications.id, notification.id))
+        .returning();
+
+      return updated;
+    },
+  })
+);
+
+builder.mutationField("archiveNotification", (t) =>
+  t.field({
+    type: NotificationType,
+    nullable: true,
+    args: {
+      id: t.arg.string({ required: true }),
+    },
+    resolve: async (_parent, args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      const [notification] = await findNotificationByIdOrShortCode(
+        args.id,
+        ctx.userId
+      );
+
+      if (!notification) return null;
+
+      const [updated] = await db
+        .update(notifications)
+        .set({ status: "archived", updatedAt: new Date() })
+        .where(eq(notifications.id, notification.id))
+        .returning();
+
+      return updated;
+    },
+  })
+);
+
+builder.mutationField("archiveAllNotifications", (t) =>
+  t.field({
+    type: "Int",
+    resolve: async (_parent, _args, ctx) => {
+      if (!ctx.userId) throw new Error("Unauthorized");
+
+      const result = await db
+        .update(notifications)
+        .set({ status: "archived", updatedAt: new Date() })
+        .where(
+          and(
+            eq(notifications.userId, ctx.userId),
+            inArray(notifications.status, ["pending", "delivered"])
+          )
+        )
+        .returning({ id: notifications.id });
+
+      return result.length;
     },
   })
 );

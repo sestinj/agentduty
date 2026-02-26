@@ -29,6 +29,20 @@
       "when": 1771722078095,
       "tag": "0003_fancy_sabra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772059262504,
+      "tag": "0004_marvelous_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772060509489,
+      "tag": "0005_red_jack_flag",
+      "breakpoints": true
     }
   ]
 }
