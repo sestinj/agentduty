@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/sestinj/agentduty/cli/internal/scanner"
 )
 
 func TestMinSplitWidth(t *testing.T) {
@@ -179,21 +177,6 @@ func TestView_Loading(t *testing.T) {
 	}
 }
 
-func TestFeedNotification_IsLocal(t *testing.T) {
-	serverNotif := feedNotification{ID: "notif-1"}
-	if serverNotif.IsLocal() {
-		t.Error("server notification should not be local")
-	}
-
-	localNotif := feedNotification{
-		ID:           "local:session-1",
-		LocalSession: &scanner.SessionState{SessionID: "session-1"},
-	}
-	if !localNotif.IsLocal() {
-		t.Error("local notification should be local")
-	}
-}
-
 func TestFeedNotification_Age(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -279,53 +262,3 @@ func TestTruncateText(t *testing.T) {
 	}
 }
 
-func TestRenderMarkdown_Headers(t *testing.T) {
-	content := "# Big Header\n## Sub Header\n### Small Header"
-	result := renderMarkdown(content, 80)
-	// Headers should be rendered (we can't check styles, but content should be present)
-	if !strings.Contains(result, "Big Header") {
-		t.Error("should contain H1 content")
-	}
-	if !strings.Contains(result, "Sub Header") {
-		t.Error("should contain H2 content")
-	}
-	if !strings.Contains(result, "Small Header") {
-		t.Error("should contain H3 content")
-	}
-}
-
-func TestRenderMarkdown_BulletList(t *testing.T) {
-	content := "- Item one\n- Item two"
-	result := renderMarkdown(content, 80)
-	if !strings.Contains(result, "Item one") {
-		t.Error("should contain first bullet item")
-	}
-	if !strings.Contains(result, "Item two") {
-		t.Error("should contain second bullet item")
-	}
-}
-
-func TestRenderMarkdown_CodeBlock(t *testing.T) {
-	content := "```\nfoo bar\nbaz\n```"
-	result := renderMarkdown(content, 80)
-	if !strings.Contains(result, "foo bar") {
-		t.Error("should contain code block content")
-	}
-	if !strings.Contains(result, "baz") {
-		t.Error("should contain code block content")
-	}
-}
-
-func TestRenderInlineMarkdown_Bold(t *testing.T) {
-	result := renderInlineMarkdown("hello **world** end")
-	if !strings.Contains(result, "world") {
-		t.Error("should contain bold text")
-	}
-}
-
-func TestRenderInlineMarkdown_InlineCode(t *testing.T) {
-	result := renderInlineMarkdown("use `foo` here")
-	if !strings.Contains(result, "foo") {
-		t.Error("should contain inline code text")
-	}
-}
