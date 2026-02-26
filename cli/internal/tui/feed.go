@@ -167,12 +167,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case respondedMsg:
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Error: %v", msg.err)
-			// Unhide so the item reappears
 			if msg.id != "" {
 				delete(m.hidden, msg.id)
 			}
+			return m, nil
 		}
-		return m, nil
+		return m, fetchFeed(m.client)
 
 	case snoozedMsg:
 		if msg.err != nil {
@@ -180,8 +180,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.id != "" {
 				delete(m.hidden, msg.id)
 			}
+			return m, nil
 		}
-		return m, nil
+		return m, fetchFeed(m.client)
 
 	case archivedMsg:
 		if msg.err != nil {
@@ -189,8 +190,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.id != "" {
 				delete(m.hidden, msg.id)
 			}
+			return m, nil
 		}
-		return m, nil
+		return m, fetchFeed(m.client)
 
 	case archivedAllMsg:
 		if msg.err != nil {
@@ -709,7 +711,7 @@ func (m Model) renderCard(n feedNotification, focused bool, width int) string {
 type tickMsg struct{}
 
 func scheduleRefresh() tea.Cmd {
-	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(1*time.Second, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
 }
